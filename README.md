@@ -36,6 +36,31 @@ Fail2banの管理ダッシュボード - BANしたIPの管理を簡単に
 - Fail2ban
 - sudo権限（fail2ban-client実行用）
 
+## クイックスタート
+
+最小限の手順で起動する方法：
+
+```bash
+# 1. クローン
+git clone https://github.com/yourusername/fail2ban-dashboard.git
+cd fail2ban-dashboard
+
+# 2. セットアップ
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. 設定（パスワードを変更）
+cp .env.example .env
+nano .env  # ADMIN_PASSWORD を変更
+
+# 4. 起動
+cd backend
+python app.py
+```
+
+ブラウザで http://localhost:5000 にアクセス（デフォルト: admin / admin）
+
 ## インストール
 
 ```bash
