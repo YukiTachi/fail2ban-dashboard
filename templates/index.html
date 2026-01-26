@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fail2ban Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .card-hover {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+        .stat-value {
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen">
+    <!-- Header -->
+    <header class="bg-gray-800 shadow-lg">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-shield-halved text-3xl text-blue-500"></i>
+                    <h1 class="text-xl md:text-2xl font-bold text-white">Fail2ban Dashboard</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="refreshData()" class="text-gray-400 hover:text-white transition" title="Refresh">
+                        <i class="fas fa-sync-alt text-xl" id="refresh-icon"></i>
+                    </button>
+                    <a href="{{ url_for('logout') }}" class="text-gray-400 hover:text-red-400 transition" title="Logout">
+                        <i class="fas fa-sign-out-alt text-xl"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-red-500">
+                <div class="text-gray-400 text-sm">Total Banned</div>
+                <div class="text-2xl font-bold text-white stat-value" id="total-banned">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-yellow-500">
+                <div class="text-gray-400 text-sm">Currently Banned</div>
+                <div class="text-2xl font-bold text-white stat-value" id="current-banned">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-orange-500">
+                <div class="text-gray-400 text-sm">Total Failed</div>
+                <div class="text-2xl font-bold text-white stat-value" id="total-failed">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-blue-500">
+                <div class="text-gray-400 text-sm">Active Jails</div>
+                <div class="text-2xl font-bold text-white stat-value" id="active-jails">-</div>
+            </div>
+        </div>
+
+        <!-- Jails Grid -->
+        <h2 class="text-xl font-semibold text-white mb-4">
+            <i class="fas fa-server mr-2"></i>Jail Status
+        </h2>
+
+        <div id="jails-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Loading state -->
+            <div class="col-span-full text-center py-12" id="loading">
+                <i class="fas fa-spinner fa-spin text-4xl text-blue-500 mb-4"></i>
+                <p class="text-gray-400">Loading jail data...</p>
+            </div>
+        </div>
+
+        <!-- Error state -->
+        <div id="error-container" class="hidden text-center py-12">
+            <i class="fas fa-exclamation-triangle text-4xl text-red-500 mb-4"></i>
+            <p class="text-gray-400" id="error-message">Failed to load data</p>
+            <button onclick="refreshData()" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+                <i class="fas fa-redo mr-2"></i>Retry
+            </button>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 mt-auto py-4">
+        <div class="container mx-auto px-4 text-center text-gray-500 text-sm">
+            Fail2ban Dashboard - Real-time monitoring
+        </div>
+    </footer>
+
+    <script>
+        // Fetch and display jail data
+        async function fetchJails() {
+            try {
+                const response = await fetch('/api/jails');
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to fetch data');
+                }
+
+                return data.jails;
+            } catch (error) {
+                console.error('Error fetching jails:', error);
+                throw error;
+            }
+        }
+
+        // Render jail cards
+        function renderJails(jails) {
+            const container = document.getElementById('jails-container');
+            const loading = document.getElementById('loading');
+            const errorContainer = document.getElementById('error-container');
+
+            loading.classList.add('hidden');
+            errorContainer.classList.add('hidden');
+
+            if (jails.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-12">
+                        <i class="fas fa-inbox text-4xl text-gray-600 mb-4"></i>
+                        <p class="text-gray-400">No jails found</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Calculate totals
+            let totalBanned = 0;
+            let currentBanned = 0;
+            let totalFailed = 0;
+
+            jails.forEach(jail => {
+                totalBanned += jail.total_banned || 0;
+                currentBanned += jail.currently_banned || 0;
+                totalFailed += jail.total_failed || 0;
+            });
+
+            document.getElementById('total-banned').textContent = totalBanned.toLocaleString();
+            document.getElementById('current-banned').textContent = currentBanned.toLocaleString();
+            document.getElementById('total-failed').textContent = totalFailed.toLocaleString();
+            document.getElementById('active-jails').textContent = jails.length;
+
+            // Render cards
+            container.innerHTML = jails.map(jail => createJailCard(jail)).join('');
+        }
+
+        // Create a jail card HTML
+        function createJailCard(jail) {
+            const color = jail.color || { bg: 'bg-purple-500', border: 'border-purple-600' };
+
+            return `
+                <a href="/detail/${jail.name}" class="block">
+                    <div class="bg-gray-800 rounded-lg overflow-hidden card-hover cursor-pointer border-t-4 ${color.border}">
+                        <div class="${color.bg} px-4 py-3">
+                            <h3 class="text-lg font-semibold text-white flex items-center">
+                                <i class="fas fa-lock mr-2"></i>
+                                ${jail.name}
+                            </h3>
+                        </div>
+                        <div class="p-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="text-center">
+                                    <div class="text-xs text-gray-500 uppercase tracking-wide">Currently Failed</div>
+                                    <div class="text-2xl font-bold text-yellow-400 stat-value">${jail.currently_failed}</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-xs text-gray-500 uppercase tracking-wide">Total Failed</div>
+                                    <div class="text-2xl font-bold text-orange-400 stat-value">${jail.total_failed.toLocaleString()}</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-xs text-gray-500 uppercase tracking-wide">Currently Banned</div>
+                                    <div class="text-2xl font-bold text-red-400 stat-value">${jail.currently_banned}</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-xs text-gray-500 uppercase tracking-wide">Total Banned</div>
+                                    <div class="text-2xl font-bold text-red-500 stat-value">${jail.total_banned.toLocaleString()}</div>
+                                </div>
+                            </div>
+                            <div class="mt-4 text-center">
+                                <span class="text-blue-400 text-sm hover:text-blue-300">
+                                    View Details <i class="fas fa-arrow-right ml-1"></i>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            `;
+        }
+
+        // Show error state
+        function showError(message) {
+            const container = document.getElementById('jails-container');
+            const loading = document.getElementById('loading');
+            const errorContainer = document.getElementById('error-container');
+
+            container.innerHTML = '';
+            loading.classList.add('hidden');
+            errorContainer.classList.remove('hidden');
+            document.getElementById('error-message').textContent = message;
+        }
+
+        // Refresh data
+        async function refreshData() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('fa-spin');
+
+            try {
+                const jails = await fetchJails();
+                renderJails(jails);
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                setTimeout(() => {
+                    icon.classList.remove('fa-spin');
+                }, 500);
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(refreshData, 30000);
+
+        // Initial load
+        refreshData();
+    </script>
+</body>
+</html>

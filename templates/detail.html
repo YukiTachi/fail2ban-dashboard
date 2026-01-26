@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ jail_name }} - Fail2ban Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .stat-value { font-variant-numeric: tabular-nums; }
+        .flag-icon { width: 24px; height: 16px; display: inline-block; }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen">
+    <!-- Header -->
+    <header class="bg-gray-800 shadow-lg">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <a href="{{ url_for('index') }}" class="text-gray-400 hover:text-white transition">
+                        <i class="fas fa-arrow-left text-xl"></i>
+                    </a>
+                    <i class="fas fa-shield-halved text-3xl text-blue-500"></i>
+                    <div>
+                        <h1 class="text-xl md:text-2xl font-bold text-white">{{ jail_name }}</h1>
+                        <p class="text-gray-400 text-sm">Jail Details</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="refreshData()" class="text-gray-400 hover:text-white transition" title="Refresh">
+                        <i class="fas fa-sync-alt text-xl" id="refresh-icon"></i>
+                    </button>
+                    <a href="{{ url_for('logout') }}" class="text-gray-400 hover:text-red-400 transition" title="Logout">
+                        <i class="fas fa-sign-out-alt text-xl"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-yellow-500">
+                <div class="text-gray-400 text-sm">Currently Failed</div>
+                <div class="text-2xl font-bold text-yellow-400 stat-value" id="currently-failed">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-orange-500">
+                <div class="text-gray-400 text-sm">Total Failed</div>
+                <div class="text-2xl font-bold text-orange-400 stat-value" id="total-failed">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-red-500">
+                <div class="text-gray-400 text-sm">Currently Banned</div>
+                <div class="text-2xl font-bold text-red-400 stat-value" id="currently-banned">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border-l-4 border-red-600">
+                <div class="text-gray-400 text-sm">Total Banned</div>
+                <div class="text-2xl font-bold text-red-500 stat-value" id="total-banned">-</div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="mb-6">
+            <div class="flex flex-wrap border-b border-gray-700">
+                <button onclick="showTab('failed')" id="tab-failed"
+                    class="tab-btn px-4 py-3 text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-500 transition">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    <span class="hidden sm:inline">(A) </span>Failed IPs
+                </button>
+                <button onclick="showTab('banned')" id="tab-banned"
+                    class="tab-btn px-4 py-3 text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-500 transition">
+                    <i class="fas fa-ban mr-2"></i>
+                    <span class="hidden sm:inline">(B) </span>Banned IPs
+                </button>
+                <button onclick="showTab('histogram')" id="tab-histogram"
+                    class="tab-btn px-4 py-3 text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-500 transition">
+                    <i class="fas fa-chart-bar mr-2"></i>
+                    <span class="hidden sm:inline">(C) </span>Histogram
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab: (A) Failed IPs -->
+        <div id="panel-failed" class="tab-panel">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold text-white mb-4">
+                    <i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>
+                    Failed IPs - Ban Control
+                </h3>
+                <p class="text-gray-400 mb-4">
+                    IPs that are currently being counted for failures. You can manually ban these IPs.
+                </p>
+
+                <div id="failed-ips-container">
+                    <div class="text-center py-8">
+                        <i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: (B) Banned IPs -->
+        <div id="panel-banned" class="tab-panel hidden">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold text-white mb-4">
+                    <i class="fas fa-ban text-red-500 mr-2"></i>
+                    Banned IPs (Top 30 by Reject Count)
+                </h3>
+                <p class="text-gray-400 mb-4">
+                    Currently banned IPs sorted by reject count with country information.
+                </p>
+
+                <div id="banned-ips-container">
+                    <div class="text-center py-8">
+                        <i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: (C) Histogram -->
+        <div id="panel-histogram" class="tab-panel hidden">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold text-white mb-4">
+                    <i class="fas fa-chart-bar text-blue-500 mr-2"></i>
+                    Reject Count Distribution
+                </h3>
+                <p class="text-gray-400 mb-4">
+                    Histogram showing the distribution of reject counts across banned IPs.
+                </p>
+
+                <div class="bg-gray-900 rounded-lg p-4" style="height: 400px;">
+                    <canvas id="histogram-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-gray-800 border border-gray-700 rounded-lg px-6 py-4 shadow-xl transform translate-y-20 opacity-0 transition-all duration-300">
+        <div class="flex items-center space-x-3">
+            <i class="fas fa-check-circle text-green-500" id="toast-icon"></i>
+            <span class="text-white" id="toast-message">Action completed</span>
+        </div>
+    </div>
+
+    <script>
+        const jailName = '{{ jail_name }}';
+        let histogramChart = null;
+        let jailData = null;
+
+        // Show toast notification
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toast-icon');
+            const msg = document.getElementById('toast-message');
+
+            msg.textContent = message;
+            icon.className = isError ? 'fas fa-exclamation-circle text-red-500' : 'fas fa-check-circle text-green-500';
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        // Tab switching
+        function showTab(tabName) {
+            // Hide all panels
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                panel.classList.add('hidden');
+            });
+
+            // Reset all tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('text-white', 'border-blue-500');
+                btn.classList.add('text-gray-400', 'border-transparent');
+            });
+
+            // Show selected panel
+            document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+
+            // Highlight selected tab
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            activeTab.classList.remove('text-gray-400', 'border-transparent');
+            activeTab.classList.add('text-white', 'border-blue-500');
+
+            // Load histogram if needed
+            if (tabName === 'histogram') {
+                loadHistogram();
+            }
+        }
+
+        // Fetch jail details
+        async function fetchJailDetails() {
+            try {
+                const response = await fetch(`/api/jail/${jailName}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to fetch data');
+                }
+
+                return data.jail;
+            } catch (error) {
+                console.error('Error fetching jail details:', error);
+                throw error;
+            }
+        }
+
+        // Render failed IPs with ban controls
+        function renderFailedIPs(failedIPs) {
+            const container = document.getElementById('failed-ips-container');
+
+            if (!failedIPs || failedIPs.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-check-circle text-4xl mb-4 text-green-500"></i>
+                        <p>No failed IPs currently being tracked</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b border-gray-700">
+                                <th class="py-3 px-4 text-gray-400 font-medium">IP Address</th>
+                                <th class="py-3 px-4 text-gray-400 font-medium text-center">Fail Count</th>
+                                <th class="py-3 px-4 text-gray-400 font-medium text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${failedIPs.map(ip => `
+                                <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                                    <td class="py-3 px-4">
+                                        <code class="text-white bg-gray-900 px-2 py-1 rounded">${ip.ip}</code>
+                                    </td>
+                                    <td class="py-3 px-4 text-center">
+                                        <span class="text-yellow-400 font-bold">${ip.fail_count}</span>
+                                    </td>
+                                    <td class="py-3 px-4 text-center">
+                                        <button onclick="banIP('${ip.ip}')"
+                                            class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition">
+                                            <i class="fas fa-ban mr-1"></i>Ban
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // Get country flag emoji
+        function getFlagEmoji(countryCode) {
+            if (!countryCode || countryCode === 'XX') return '';
+            const codePoints = countryCode
+                .toUpperCase()
+                .split('')
+                .map(char => 127397 + char.charCodeAt(0));
+            return String.fromCodePoint(...codePoints);
+        }
+
+        // Render banned IPs with country info
+        function renderBannedIPs(bannedIPs) {
+            const container = document.getElementById('banned-ips-container');
+
+            if (!bannedIPs || bannedIPs.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-shield-alt text-4xl mb-4 text-green-500"></i>
+                        <p>No banned IPs</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b border-gray-700">
+                                <th class="py-3 px-4 text-gray-400 font-medium">#</th>
+                                <th class="py-3 px-4 text-gray-400 font-medium">IP Address</th>
+                                <th class="py-3 px-4 text-gray-400 font-medium">Country</th>
+                                <th class="py-3 px-4 text-gray-400 font-medium text-center">Rejects</th>
+                                <th class="py-3 px-4 text-gray-400 font-medium text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bannedIPs.map((ip, index) => `
+                                <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                                    <td class="py-3 px-4 text-gray-500">${index + 1}</td>
+                                    <td class="py-3 px-4">
+                                        <code class="text-white bg-gray-900 px-2 py-1 rounded">${ip.ip}</code>
+                                    </td>
+                                    <td class="py-3 px-4">
+                                        <span class="text-2xl mr-2">${getFlagEmoji(ip.country?.country_code)}</span>
+                                        <span class="text-gray-300">${ip.country?.country || 'Unknown'}</span>
+                                        ${ip.country?.city ? `<span class="text-gray-500 text-sm ml-2">(${ip.country.city})</span>` : ''}
+                                    </td>
+                                    <td class="py-3 px-4 text-center">
+                                        <span class="text-red-400 font-bold">${ip.reject_count.toLocaleString()}</span>
+                                    </td>
+                                    <td class="py-3 px-4 text-center">
+                                        <button onclick="unbanIP('${ip.ip}')"
+                                            class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition">
+                                            <i class="fas fa-unlock mr-1"></i>Unban
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // Load and render histogram
+        async function loadHistogram() {
+            try {
+                const response = await fetch(`/api/jail/${jailName}/histogram`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error);
+                }
+
+                renderHistogram(data.histogram);
+            } catch (error) {
+                console.error('Error loading histogram:', error);
+            }
+        }
+
+        // Render histogram chart
+        function renderHistogram(histogramData) {
+            const ctx = document.getElementById('histogram-chart').getContext('2d');
+
+            if (histogramChart) {
+                histogramChart.destroy();
+            }
+
+            if (!histogramData.labels || histogramData.labels.length === 0) {
+                // No data
+                ctx.font = '16px sans-serif';
+                ctx.fillStyle = '#6b7280';
+                ctx.textAlign = 'center';
+                ctx.fillText('No data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+
+            histogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: histogramData.labels,
+                    datasets: [{
+                        label: 'Number of IPs',
+                        data: histogramData.data,
+                        backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Reject Count Distribution',
+                            color: '#fff',
+                            font: { size: 16 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Reject Count Range',
+                                color: '#9ca3af'
+                            },
+                            ticks: { color: '#9ca3af' },
+                            grid: { color: '#374151' }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Number of IPs',
+                                color: '#9ca3af'
+                            },
+                            ticks: {
+                                color: '#9ca3af',
+                                stepSize: 1
+                            },
+                            grid: { color: '#374151' },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Ban an IP
+        async function banIP(ip) {
+            try {
+                const response = await fetch(`/api/jail/${jailName}/ban`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`${ip} has been banned`);
+                    refreshData();
+                } else {
+                    showToast(data.error || 'Failed to ban IP', true);
+                }
+            } catch (error) {
+                showToast('Error: ' + error.message, true);
+            }
+        }
+
+        // Unban an IP
+        async function unbanIP(ip) {
+            try {
+                const response = await fetch(`/api/jail/${jailName}/unban`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`${ip} has been unbanned`);
+                    refreshData();
+                } else {
+                    showToast(data.error || 'Failed to unban IP', true);
+                }
+            } catch (error) {
+                showToast('Error: ' + error.message, true);
+            }
+        }
+
+        // Refresh all data
+        async function refreshData() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('fa-spin');
+
+            try {
+                jailData = await fetchJailDetails();
+
+                // Update stats
+                document.getElementById('currently-failed').textContent = jailData.currently_failed || 0;
+                document.getElementById('total-failed').textContent = (jailData.total_failed || 0).toLocaleString();
+                document.getElementById('currently-banned').textContent = jailData.currently_banned || 0;
+                document.getElementById('total-banned').textContent = (jailData.total_banned || 0).toLocaleString();
+
+                // Render tabs content
+                renderFailedIPs(jailData.failed_ips);
+                renderBannedIPs(jailData.banned_ips);
+
+                // Reload histogram if visible
+                if (!document.getElementById('panel-histogram').classList.contains('hidden')) {
+                    loadHistogram();
+                }
+            } catch (error) {
+                showToast('Failed to load data: ' + error.message, true);
+            } finally {
+                setTimeout(() => {
+                    icon.classList.remove('fa-spin');
+                }, 500);
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(refreshData, 30000);
+
+        // Initial load
+        showTab('failed');
+        refreshData();
+    </script>
+</body>
+</html>
