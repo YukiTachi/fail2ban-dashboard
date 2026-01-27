@@ -100,9 +100,9 @@ FLASK_PORT=5000
 FLASK_DEBUG=false
 ```
 
-## sudoers設定（オプション）
+## sudoers設定
 
-パスワードなしでfail2ban-clientを実行するには:
+パスワードなしでコマンドを実行するには:
 
 ```bash
 sudo visudo
@@ -110,13 +110,20 @@ sudo visudo
 
 以下を追加:
 ```
+# Webサーバーの実行ユーザーに応じて変更（www-data, httpd, nginx等）
 www-data ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client
-www-data ALL=(ALL) NOPASSWD: /usr/sbin/iptables
-www-data ALL=(ALL) NOPASSWD: /usr/sbin/nft
+www-data ALL=(ALL) NOPASSWD: /usr/sbin/iptables-save -c
 www-data ALL=(ALL) NOPASSWD: /usr/bin/tail
 www-data ALL=(ALL) NOPASSWD: /usr/bin/grep
 www-data ALL=(ALL) NOPASSWD: /usr/bin/test
 ```
+
+> **Note**: 実行ユーザーは環境によって異なります
+> - Debian/Ubuntu: `www-data`
+> - RHEL/CentOS: `apache` または `nginx`
+> - KUSANAGI: `httpd`
+>
+> 確認方法: `ps aux | grep nginx` または `ps aux | grep apache`
 
 ## 起動
 

@@ -113,51 +113,33 @@ class Fail2banService:
         return banned_ips
 
     def _get_reject_counts(self, jail_name):
-        """Get reject counts from iptables for banned IPs"""
+        """Get reject counts from iptables-save for banned IPs"""
         counts = defaultdict(int)
 
         try:
-            # Try iptables first
+            # Use iptables-save -c for reading (read-only, more secure)
             result = subprocess.run(
-                ['sudo', 'iptables', '-L', f'f2b-{jail_name}', '-v', '-n'],
+                ['sudo', 'iptables-save', '-c'],
                 capture_output=True,
                 text=True,
                 timeout=30
             )
 
             if result.returncode == 0:
-                lines = result.stdout.split('\n')
-                for line in lines:
-                    # Match lines like: "  123  7380 REJECT  all  --  *  *  192.168.1.1  0.0.0.0/0"
-                    match = re.match(r'\s*(\d+)\s+\d+[KMG]?\s+REJECT.*?(\d+\.\d+\.\d+\.\d+)', line)
-                    if match:
-                        count = int(match.group(1))
-                        ip = match.group(2)
-                        counts[ip] = count
+                chain_name = f'f2b-{jail_name}'
+                for line in result.stdout.split('\n'):
+                    # Match lines like: [708:36816] -A f2b-postfix-sasl -s 77.83.39.180/32 -j REJECT
+                    if chain_name in line and 'REJECT' in line:
+                        match = re.search(
+                            r'\[(\d+):\d+\]\s+-A\s+' + re.escape(chain_name) + r'\s+-s\s+(\d+\.\d+\.\d+\.\d+)/32',
+                            line
+                        )
+                        if match:
+                            count = int(match.group(1))
+                            ip = match.group(2)
+                            counts[ip] = count
         except Exception:
             pass
-
-        # Also try nftables if iptables didn't work
-        if not counts:
-            try:
-                result = subprocess.run(
-                    ['sudo', 'nft', 'list', 'chain', 'inet', 'filter', f'f2b-{jail_name}'],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-
-                if result.returncode == 0:
-                    # Parse nftables output
-                    lines = result.stdout.split('\n')
-                    for line in lines:
-                        match = re.search(r'ip saddr (\d+\.\d+\.\d+\.\d+).*counter packets (\d+)', line)
-                        if match:
-                            ip = match.group(1)
-                            count = int(match.group(2))
-                            counts[ip] = count
-            except Exception:
-                pass
 
         return dict(counts)
 
