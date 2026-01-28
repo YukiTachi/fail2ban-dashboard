@@ -44,3 +44,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Preview files
+sample_preview*.html

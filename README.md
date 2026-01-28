@@ -18,6 +18,18 @@ Fail2banの管理ダッシュボード - BANしたIPの管理を簡単に
 - **国情報表示**: IPアドレスから国を自動取得
 - **色分け表示**: Jailごとに異なる色で表示
 
+## スクリーンショット
+
+### ダッシュボード
+Jail一覧をカード形式で表示。各Jailの状態が一目で分かります。
+
+![Dashboard](docs/images/dashboard.png)
+
+### 詳細画面
+Jailごとの詳細情報を表示。Failed IPs、Banned IPs、ヒストグラムをタブで切り替え。
+
+![Detail](docs/images/detail.png)
+
 ## アーキテクチャ
 
 ```
