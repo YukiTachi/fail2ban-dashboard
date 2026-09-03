@@ -116,8 +116,8 @@
             const loading = document.getElementById('loading');
             const errorContainer = document.getElementById('error-container');
 
-            loading.classList.add('hidden');
-            errorContainer.classList.add('hidden');
+            loading?.classList.add('hidden');
+            errorContainer?.classList.add('hidden');
 
             if (jails.length === 0) {
                 container.innerHTML = `
@@ -199,8 +199,8 @@
             const errorContainer = document.getElementById('error-container');
 
             container.innerHTML = '';
-            loading.classList.add('hidden');
-            errorContainer.classList.remove('hidden');
+            loading?.classList.add('hidden');
+            errorContainer?.classList.remove('hidden');
             document.getElementById('error-message').textContent = message;
         }
 

@@ -209,4 +209,8 @@ def api_logs(jail_name):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(
+        host=os.environ.get('FLASK_HOST', '127.0.0.1'),
+        port=int(os.environ.get('FLASK_PORT', 8001)),
+        debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    )
