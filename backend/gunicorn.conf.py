@@ -12,9 +12,10 @@ load_dotenv()
 bind = f"{os.environ.get('FLASK_HOST', '127.0.0.1')}:{os.environ.get('FLASK_PORT', '8001')}"
 
 # worker は 1 プロセス固定にする。
-# GeoIP の lru_cache がプロセス単位のため、複数 worker にすると
-# 同じ IP を worker ごとに ip-api.com へ問い合わせてしまう（無料枠は毎分 45 リクエスト）。
-# 同時リクエストはスレッドで捌く（fail2ban-client / iptables-save の呼び出しは I/O 待ちが中心）。
+# GeoIP キャッシュは SQLite なので複数 worker でも共有されるが、キャッシュにない IP を
+# 複数 worker が同時に問い合わせると ip-api.com の無料枠（batch は毎分 15 リクエスト）を無駄に消費する。
+# 管理画面の同時アクセスは少ないため、同時リクエストはスレッドで捌く
+# （fail2ban-client / iptables-save の呼び出しは I/O 待ちが中心）。
 workers = 1
 worker_class = "gthread"
 threads = 4

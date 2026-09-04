@@ -15,7 +15,7 @@ Fail2banの管理ダッシュボード - BANしたIPの管理を簡単に
   - (B) 現在BANしているIP（Reject回数が多い上位30個）と国の情報
   - (C) Reject回数のヒストグラム表示
 - **認証機能**: ログインが必要
-- **国情報表示**: IPアドレスから国を自動取得
+- **国情報表示**: IPアドレスから国を自動取得（結果は SQLite にキャッシュされ、再起動後も再問い合わせしない）
 - **色分け表示**: Jailごとに異なる色で表示
 
 ## スクリーンショット
@@ -154,6 +154,10 @@ ADMIN_PASSWORD=強力なパスワードを設定
 FLASK_HOST=127.0.0.1
 FLASK_PORT=8001
 FLASK_DEBUG=false
+
+# GeoIP キャッシュ（省略可。デフォルトは /opt/fail2ban-dashboard/data/geoip_cache.db、30 日で再取得）
+#GEOIP_CACHE_PATH=/opt/fail2ban-dashboard/data/geoip_cache.db
+#GEOIP_CACHE_TTL_DAYS=30
 ```
 
 > **Note**: `FLASK_HOST` は必ず `127.0.0.1` にしてください。`0.0.0.0` にすると nginx を経由せずグローバル IP から直接アクセスできてしまいます。`FLASK_PORT` は他のサービスと重複しない値にしてください。
@@ -418,6 +422,8 @@ sudo systemctl show fail2ban-dashboard -p Environment
 │       └── tailwind.css    # Tailwind のエントリ（ビルド元）
 ├── docs/
 │   └── images/             # README用スクリーンショット
+├── data/
+│   └── geoip_cache.db      # GeoIP キャッシュ（自動生成・gitignore）
 ├── node_modules/           # Tailwind CLI（gitignore）
 ├── venv/                   # Python仮想環境（gitignore）
 ├── .env                    # 環境設定（gitignore）

@@ -50,3 +50,6 @@ sample_preview*.html
 
 # Node (Tailwind CSS build tooling only)
 node_modules/
+
+# Runtime data (GeoIP cache DB)
+data/

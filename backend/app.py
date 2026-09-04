@@ -2,6 +2,7 @@
 """
 Fail2ban Dashboard - Flask Application
 """
+import logging
 import os
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
@@ -10,10 +11,16 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 from fail2ban_service import Fail2banService
-from geoip_service import GeoIPService
+from geoip_service import GeoIPService, ERROR as UNKNOWN_COUNTRY
 from log_parser import LogParser
 
 load_dotenv()
+
+# アプリ側ロガーの出力先を設定（gunicorn は自身のロガーしか設定しないため、未設定だと WARNING 未満が捨てられる）
+logging.basicConfig(
+    level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
 
 app = Flask(__name__,
             template_folder='../templates',
@@ -136,13 +143,13 @@ def api_jail_detail(jail_name):
         if not status:
             return jsonify({'success': False, 'error': 'Jail not found'}), 404
 
-        # Get banned IPs with country info
-        banned_ips = fail2ban_service.get_banned_ips(jail_name)
+        # Get banned IPs with country info (top 30, resolved in one batch request)
+        banned_ips = fail2ban_service.get_banned_ips(jail_name)[:30]
+        countries = geoip_service.get_country_batch([ip_info['ip'] for ip_info in banned_ips])
         ips_with_country = []
 
-        for ip_info in banned_ips[:30]:  # Top 30
-            country = geoip_service.get_country(ip_info['ip'])
-            ip_info['country'] = country
+        for ip_info in banned_ips:
+            ip_info['country'] = countries.get(ip_info['ip'], UNKNOWN_COUNTRY)
             ips_with_country.append(ip_info)
 
         # Get failed IPs
