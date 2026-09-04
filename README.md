@@ -376,6 +376,10 @@ grep NoNewPrivileges /etc/systemd/system/fail2ban-dashboard.service
 
 該当行を削除して `sudo systemctl daemon-reload && sudo systemctl restart fail2ban-dashboard` を実行してください。
 
+### Failed IPs が「Currently failed」の数と合わない
+
+Failed IPs の一覧は `/var/log/fail2ban.log` の時刻を、ダッシュボードのプロセスの現在時刻と比較して作っています。ダッシュボードは **fail2ban と同じタイムゾーン**で動かしてください（`.env` や systemd ユニットで `TZ` を変えない）。また、ログローテーション直後は、直前のファイルにある失敗が一覧に含まれないことがあります。
+
 ### `sudo: command not found` / `fail2ban-client: not found`
 
 systemd ユニットの `Environment="PATH=..."` に `/usr/bin` や `/usr/sbin` が含まれていません。Step 5 の記述のとおり、venv のパスに加えてシステムのパスも指定してください。

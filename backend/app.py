@@ -144,7 +144,8 @@ def api_jail_detail(jail_name):
             return jsonify({'success': False, 'error': 'Jail not found'}), 404
 
         # Get banned IPs with country info (top 30, resolved in one batch request)
-        banned_ips = fail2ban_service.get_banned_ips(jail_name)[:30]
+        all_banned = fail2ban_service.get_banned_ips(jail_name)
+        banned_ips = all_banned[:30]
         countries = geoip_service.get_country_batch([ip_info['ip'] for ip_info in banned_ips])
         ips_with_country = []
 
@@ -152,8 +153,9 @@ def api_jail_detail(jail_name):
             ip_info['country'] = countries.get(ip_info['ip'], UNKNOWN_COUNTRY)
             ips_with_country.append(ip_info)
 
-        # Get failed IPs
-        failed_ips = fail2ban_service.get_failed_ips(jail_name)
+        # Get failed IPs (reuse the banned list so status is not fetched again)
+        failed_ips = fail2ban_service.get_failed_ips(
+            jail_name, banned_ips={ip_info['ip'] for ip_info in all_banned})
 
         status['banned_ips'] = ips_with_country
         status['failed_ips'] = failed_ips
