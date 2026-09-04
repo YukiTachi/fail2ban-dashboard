@@ -221,8 +221,13 @@
             }
         }
 
-        // Auto-refresh every 30 seconds
-        setInterval(refreshData, 30000);
+        // Auto-refresh every 2 minutes (skipped while the tab is in the background)
+        const AUTO_REFRESH_MS = 120000;
+        setInterval(() => {
+            if (!document.hidden) {
+                refreshData();
+            }
+        }, AUTO_REFRESH_MS);
 
         // Initial load
         refreshData();
