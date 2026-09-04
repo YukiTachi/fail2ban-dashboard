@@ -36,7 +36,7 @@ Jailごとの詳細情報を表示。Failed IPs、Banned IPs、ヒストグラ�
 [Browser]
     ↓ HTTPS (443)
 [nginx] ─── リバースプロキシ
-    ↓ HTTP (127.0.0.1:8000)
+    ↓ HTTP (127.0.0.1:8001)
 [Flask App] ─── 専用ユーザー(fail2ban-dash)で実行
     ↓ sudo
 [fail2ban-client / iptables-save]
@@ -74,7 +74,7 @@ cd backend
 python app.py
 ```
 
-ブラウザで http://localhost:5000 にアクセス（デフォルト: admin / admin）
+ブラウザで http://localhost:8001 にアクセス（`.env.example` のデフォルト: admin / changeme）
 
 ---
 
@@ -120,8 +120,9 @@ sudo chown -R fail2ban-dash:fail2ban-dash /opt/fail2ban-dashboard
 ### Step 3: 環境設定
 
 ```bash
-# 設定ファイルを作成
+# 設定ファイルを作成（所有者のみ読み書き可）
 sudo -u fail2ban-dash cp .env.example .env
+sudo chmod 600 .env
 
 # SECRET_KEYを生成
 python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -142,9 +143,11 @@ ADMIN_PASSWORD=強力なパスワードを設定
 
 # サーバー設定
 FLASK_HOST=127.0.0.1
-FLASK_PORT=8000
+FLASK_PORT=8001
 FLASK_DEBUG=false
 ```
+
+> **Note**: `FLASK_HOST` は必ず `127.0.0.1` にしてください。`0.0.0.0` にすると nginx を経由せずグローバル IP から直接アクセスできてしまいます。`FLASK_PORT` は他のサービスと重複しない値にしてください。
 
 ### Step 4: sudoers設定
 
@@ -183,14 +186,15 @@ Type=simple
 User=fail2ban-dash
 Group=fail2ban-dash
 WorkingDirectory=/opt/fail2ban-dashboard/backend
-Environment="PATH=/opt/fail2ban-dashboard/venv/bin"
+# venv に加えてシステムのパスも含める（sudo / fail2ban-client / iptables-save の解決に必要）
+Environment="PATH=/opt/fail2ban-dashboard/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=/opt/fail2ban-dashboard/.env
 ExecStart=/opt/fail2ban-dashboard/venv/bin/python app.py
 Restart=always
 RestartSec=5
 
 # セキュリティ設定
-NoNewPrivileges=true
+# NoNewPrivileges=true は指定しないこと（sudo が使えなくなり Jail 一覧が空になる）
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/fail2ban-dashboard
@@ -199,6 +203,11 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **注意**: 以下の 2 点は実際のデプロイで踏んだ罠です。
+>
+> - **`NoNewPrivileges=true` を付けない**: このアプリは `sudo` 経由で `fail2ban-client` を実行します。`NoNewPrivileges=true` があると sudo による権限昇格が禁止され、エラーにはならず Jail 一覧が空で表示されます。
+> - **`PATH` に `/usr/bin` `/usr/sbin` を含める**: venv のパスだけにすると `sudo` や `fail2ban-client`、`iptables-save` が見つからず動作しません。
 
 サービスを有効化して起動：
 
@@ -243,7 +252,7 @@ server {
     # deny all;
 
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -319,6 +328,26 @@ sudo -l -U fail2ban-dash
 sudo -u fail2ban-dash sudo /usr/bin/fail2ban-client status
 ```
 
+### Jail一覧が空になる（エラーは出ない）
+
+systemd ユニットに `NoNewPrivileges=true` が設定されていると、sudo による権限昇格がブロックされ、`fail2ban-client` の実行結果が空になります。
+
+```bash
+# ユニットファイルを確認
+grep NoNewPrivileges /etc/systemd/system/fail2ban-dashboard.service
+```
+
+該当行を削除して `sudo systemctl daemon-reload && sudo systemctl restart fail2ban-dashboard` を実行してください。
+
+### `sudo: command not found` / `fail2ban-client: not found`
+
+systemd ユニットの `Environment="PATH=..."` に `/usr/bin` や `/usr/sbin` が含まれていません。Step 5 の記述のとおり、venv のパスに加えてシステムのパスも指定してください。
+
+```bash
+# 実際に渡されている PATH を確認
+sudo systemctl show fail2ban-dashboard -p Environment
+```
+
 ---
 
 ## API エンドポイント
@@ -347,13 +376,13 @@ sudo -u fail2ban-dash sudo /usr/bin/fail2ban-client status
 │   ├── index.html          # ダッシュボード
 │   ├── detail.html         # 詳細画面
 │   └── login.html          # ログイン画面
-├── frontend/
-│   ├── css/
-│   └── js/
-├── venv/                   # Python仮想環境
+├── docs/
+│   └── images/             # README用スクリーンショット
+├── venv/                   # Python仮想環境（gitignore）
 ├── .env                    # 環境設定（gitignore）
 ├── .env.example
 ├── requirements.txt
+├── LICENSE
 └── README.md
 ```
 
