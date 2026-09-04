@@ -48,6 +48,7 @@ Jailごとの詳細情報を表示。Failed IPs、Banned IPs、ヒストグラ�
 - Fail2ban
 - nginx
 - systemd
+- Node.js（Tailwind CSS のビルド時のみ。サーバーには不要）
 
 ---
 
@@ -69,7 +70,12 @@ pip install -r requirements.txt
 cp .env.example .env
 nano .env  # ADMIN_PASSWORD, SECRET_KEY を変更
 
-# 4. 起動（開発サーバー）
+# 4. CSS をビルド（ビルド済みの static/css/tailwind.css がリポジトリに含まれているので、
+#    テンプレートのクラスを変更しないなら省略可）
+npm install
+npm run build:css
+
+# 5. 起動（開発サーバー）
 cd backend
 python app.py
 
@@ -306,6 +312,22 @@ sudo journalctl -u fail2ban-dashboard -f
 
 ---
 
+## CSS のビルド（Tailwind CSS）
+
+CDN 版の Tailwind（Play CDN）は開発用のため、本番ではビルド済み CSS を使います。ビルド成果物の `static/css/tailwind.css` はリポジトリにコミットしてあるので、**サーバー側で Node.js は不要**です。
+
+テンプレートや `backend/app.py` の `JAIL_COLORS` で Tailwind のクラスを追加・変更したときは、ローカルで再ビルドしてコミットしてください。
+
+```bash
+npm install          # 初回のみ
+npm run build:css    # static/css/tailwind.css を再生成
+npm run watch:css    # 開発中に自動で再ビルドする場合
+```
+
+走査対象は `tailwind.config.js` の `content` で指定しています。`backend/app.py` を含めているのは、Jail ごとの色クラス（`bg-blue-500` など）が Python 側で定義されて API 経由でフロントに渡されるためです。ここを外すと、それらのクラスが CSS から漏れて色が消えます。
+
+---
+
 ## トラブルシューティング
 
 ### サービスが起動しない
@@ -388,11 +410,20 @@ sudo systemctl show fail2ban-dashboard -p Environment
 │   ├── index.html          # ダッシュボード
 │   ├── detail.html         # 詳細画面
 │   └── login.html          # ログイン画面
+├── static/
+│   └── css/
+│       └── tailwind.css    # ビルド済み CSS（コミット対象）
+├── src/
+│   └── css/
+│       └── tailwind.css    # Tailwind のエントリ（ビルド元）
 ├── docs/
 │   └── images/             # README用スクリーンショット
+├── node_modules/           # Tailwind CLI（gitignore）
 ├── venv/                   # Python仮想環境（gitignore）
 ├── .env                    # 環境設定（gitignore）
 ├── .env.example
+├── package.json            # CSS ビルド用スクリプト
+├── tailwind.config.js
 ├── requirements.txt
 ├── LICENSE
 └── README.md

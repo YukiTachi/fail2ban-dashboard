@@ -47,3 +47,6 @@ htmlcov/
 
 # Preview files
 sample_preview*.html
+
+# Node (Tailwind CSS build tooling only)
+node_modules/

@@ -1,0 +1,12 @@
+{
+  "name": "fail2ban-dashboard",
+  "private": true,
+  "description": "Build tooling for the dashboard's Tailwind CSS (the app itself is Python/Flask)",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i ./src/css/tailwind.css -o ./static/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -c tailwind.config.js -i ./src/css/tailwind.css -o ./static/css/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.19"
+  }
+}
