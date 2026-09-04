@@ -37,7 +37,7 @@ Jailごとの詳細情報を表示。Failed IPs、Banned IPs、ヒストグラ�
     ↓ HTTPS (443)
 [nginx] ─── リバースプロキシ
     ↓ HTTP (127.0.0.1:8001)
-[Flask App] ─── 専用ユーザー(fail2ban-dash)で実行
+[gunicorn + Flask] ─── 専用ユーザー(fail2ban-dash)で実行
     ↓ sudo
 [fail2ban-client / iptables-save]
 ```
@@ -69,9 +69,12 @@ pip install -r requirements.txt
 cp .env.example .env
 nano .env  # ADMIN_PASSWORD, SECRET_KEY を変更
 
-# 4. 起動
+# 4. 起動（開発サーバー）
 cd backend
 python app.py
+
+# 本番と同じ gunicorn で起動する場合
+gunicorn -c gunicorn.conf.py app:app
 ```
 
 ブラウザで http://localhost:8001 にアクセス（`.env.example` のデフォルト: admin / changeme）
@@ -182,14 +185,19 @@ Description=Fail2ban Dashboard
 After=network.target fail2ban.service
 
 [Service]
-Type=simple
+# gunicorn は起動完了を systemd に通知するので notify にする（start が準備完了まで待つ）
+Type=notify
 User=fail2ban-dash
 Group=fail2ban-dash
 WorkingDirectory=/opt/fail2ban-dashboard/backend
 # venv に加えてシステムのパスも含める（sudo / fail2ban-client / iptables-save の解決に必要）
 Environment="PATH=/opt/fail2ban-dashboard/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=/opt/fail2ban-dashboard/.env
-ExecStart=/opt/fail2ban-dashboard/venv/bin/python app.py
+ExecStart=/opt/fail2ban-dashboard/venv/bin/gunicorn -c gunicorn.conf.py app:app
+# systemctl reload で worker を無停止で入れ替える
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=15
 Restart=always
 RestartSec=5
 
@@ -203,6 +211,8 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 ```
+
+gunicorn の worker 数やタイムアウトは `backend/gunicorn.conf.py` で設定します。ログは journald に出るので `journalctl -u fail2ban-dashboard` で確認できます。bind 先は `.env` の `FLASK_HOST` / `FLASK_PORT` を参照するので、ポートを変える場合は `.env` だけ変更すれば済みます。
 
 > **注意**: 以下の 2 点は実際のデプロイで踏んだ罠です。
 >
@@ -305,7 +315,8 @@ sudo journalctl -u fail2ban-dashboard -f
 sudo journalctl -u fail2ban-dashboard -n 50
 
 # 手動で実行してエラーを確認
-sudo -u fail2ban-dash /opt/fail2ban-dashboard/venv/bin/python /opt/fail2ban-dashboard/backend/app.py
+cd /opt/fail2ban-dashboard/backend
+sudo -u fail2ban-dash /opt/fail2ban-dashboard/venv/bin/gunicorn -c gunicorn.conf.py app:app
 ```
 
 ### Permission denied エラー
@@ -371,7 +382,8 @@ sudo systemctl show fail2ban-dashboard -p Environment
 │   ├── app.py              # Flask メインアプリ
 │   ├── fail2ban_service.py # fail2ban連携
 │   ├── geoip_service.py    # 国情報取得
-│   └── log_parser.py       # ログ解析
+│   ├── log_parser.py       # ログ解析
+│   └── gunicorn.conf.py    # gunicorn 設定
 ├── templates/
 │   ├── index.html          # ダッシュボード
 │   ├── detail.html         # 詳細画面
