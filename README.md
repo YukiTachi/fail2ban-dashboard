@@ -35,11 +35,21 @@ Jailごとの詳細情報を表示。Failed IPs、Banned IPs、ヒストグラ�
 ```
 [Browser]
     ↓ HTTPS (443)
-[nginx] ─── リバースプロキシ
+[nginx] ─── リバースプロキシ          ※方式 A: インターネットに公開
     ↓ HTTP (127.0.0.1:8001)
 [gunicorn + Flask] ─── 専用ユーザー(fail2ban-dash)で実行
     ↓ sudo
 [fail2ban-client / iptables-save]
+```
+
+Tailscale 経由に限定する場合（方式 B・推奨）は、nginx の代わりに Tailscale がリバースプロキシと TLS 終端を担います。
+
+```
+[Browser] ─── tailnet 内の端末のみ
+    ↓ HTTPS (<host>.<tailnet>.ts.net)
+[tailscale serve] ─── 証明書は自動取得・自動更新
+    ↓ HTTP (127.0.0.1:8001)
+[gunicorn + Flask]
 ```
 
 ## 必要要件
@@ -245,7 +255,18 @@ sudo systemctl start fail2ban-dashboard
 sudo systemctl status fail2ban-dashboard
 ```
 
-### Step 6: nginxリバースプロキシの設定
+### Step 6: 公開方法を選ぶ
+
+ダッシュボードの入口には 2 通りあります。
+
+| 方式 | 入口 | 向いている場合 |
+|------|------|----------------|
+| **A. nginx で一般公開** | `https://your-domain.com` | 誰の端末からでも URL で開きたい |
+| **B. Tailscale 内に限定**（推奨） | `https://<host>.<tailnet>.ts.net` | 自分の端末からだけ開ければよい |
+
+方式 B ならログイン画面すらインターネットに露出しないため、総当たりや将来の脆弱性を突く攻撃の的になりません。外出先やスマホからも、Tailscale をつなげば同じ URL で使えます。方式 B を選ぶ場合は Step 6 の nginx 設定を飛ばし、後述の「Tailscale 経由に限定する」へ進んでください。
+
+#### 方式 A: nginxリバースプロキシの設定
 
 ```bash
 sudo nano /etc/nginx/conf.d/fail2ban-dashboard.conf
@@ -313,6 +334,77 @@ sudo journalctl -u fail2ban-dashboard -f
 # ブラウザでアクセス
 # https://your-domain.com
 ```
+
+---
+
+## Tailscale 経由に限定する
+
+インターネットに一切公開せず、自分の端末からだけアクセスできるようにする構成です。`tailscale serve` が Tailscale 内蔵のリバースプロキシとして働き、TLS 証明書の取得と更新も Tailscale が自動で行うため、**nginx も certbot も不要**です。
+
+### Step 1: Tailscale の準備
+
+[login.tailscale.com](https://login.tailscale.com) でアカウントを作成し、管理画面の **DNS** ページで **MagicDNS** と **HTTPS Certificates** を有効にします。どちらも `tailscale serve` の HTTPS に必要です。
+
+### Step 2: サーバーに Tailscale を導入
+
+```bash
+# CentOS Stream 9 / RHEL 9 系
+sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/centos/9/tailscale.repo
+sudo dnf install tailscale
+sudo systemctl enable --now tailscaled
+sudo tailscale up   # 表示された URL をブラウザで開いて認証
+```
+
+他のディストリビューションは [公式の導入手順](https://tailscale.com/download/linux) を参照してください。ファイアウォールの受信ポートを開ける必要はありません（外向きの UDP で接続を張るため）。
+
+### Step 3: 利用する端末を追加
+
+PC・スマホに Tailscale アプリを入れ、同じアカウントでログインします。`tailscale status` に端末が並べば準備完了です。
+
+### Step 4: ダッシュボードを tailnet 内に公開
+
+```bash
+sudo tailscale serve --bg http://127.0.0.1:8001
+tailscale serve status
+```
+
+`https://<ホスト名>.<tailnet名>.ts.net` が表示されます。これが新しい URL です。`--bg` を付けているので設定は保存され、サーバー再起動後も維持されます。
+
+> **注意**: `tailscale funnel` は書式が似ていますが、**インターネット全体に公開する**コマンドです。間違えないでください。`tailscale serve status` の出力に `(tailnet only)` と表示されていることを必ず確認します。
+
+元に戻すには次を実行します。
+
+```bash
+sudo tailscale serve --https=443 off
+```
+
+### Step 5: 公開側の入口を閉じる
+
+**Step 4 の URL で正常に使えることを、PC とスマホの両方で確認してから**実行します。
+
+```bash
+sudo mv /etc/nginx/conf.d/fail2ban-dashboard.conf /etc/nginx/conf.d/fail2ban-dashboard.conf.disabled
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+以後、公開ドメインではダッシュボードが表示されなくなります。DNS の A レコードと Let's Encrypt の証明書も不要になるので、しばらく運用して問題がなければ削除してください。
+
+### Step 6: fail2ban に tailnet を除外登録
+
+Tailscale 経由の自分の接続が誤って BAN されないようにします。`/etc/fail2ban/jail.local` の `ignoreip` に追記します。
+
+```
+ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 fd7a:115c:a1e0::/48
+```
+
+```bash
+sudo fail2ban-client reload
+sudo fail2ban-client get sshd ignoreip
+```
+
+`100.64.0.0/10` は CGNAT 用の予約範囲で、Tailscale が各端末に割り当てます。インターネット上のホストがこの範囲を送信元にすることはないため、許可しても外部からの攻撃を見逃すことはありません。`fd7a:115c:a1e0::/48` は Tailscale の IPv6 範囲です。
+
+> **補足**: この構成は SSH には影響しません。Tailscale は仮想インターフェースを追加するだけで、既存の公開 IP 経由の接続はそのまま使えます。SSH も Tailscale 経由に限定したい場合は、`tailscale status` で疎通を確認したうえで、別途 sshd やファイアウォールを設定してください。
 
 ---
 
@@ -445,7 +537,7 @@ sudo systemctl show fail2ban-dashboard -p Environment
 
 - `.env`ファイルのパスワードとSECRET_KEYは必ず変更してください
 - 本番環境では必ずHTTPSを使用してください
-- ファイアウォールやnginxでアクセス元を制限することを推奨します
+- アクセス元の制限を推奨します。最も確実なのは「Tailscale 経由に限定する」の構成で、インターネットからは到達できなくなります
 - 専用ユーザー（fail2ban-dash）は最小権限の原則に基づいて設定されています
 
 ---
