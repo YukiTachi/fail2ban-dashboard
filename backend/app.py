@@ -5,7 +5,7 @@ Fail2ban Dashboard - Flask Application
 import logging
 import os
 from functools import wraps
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -75,6 +75,11 @@ def get_jail_color(jail_name):
     return JAIL_COLORS['default']
 
 # Routes
+@app.route('/favicon.ico')
+def favicon():
+    """テンプレートの link タグを読まず /favicon.ico を直接取りに来るクライアント向け"""
+    return send_from_directory(app.static_folder, 'img/favicon-32.png', mimetype='image/png')
+
 @app.route('/')
 @login_required
 def index():

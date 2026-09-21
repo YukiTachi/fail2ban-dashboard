@@ -513,8 +513,10 @@ sudo systemctl show fail2ban-dashboard -p Environment
 │   ├── detail.html         # 詳細画面
 │   └── login.html          # ログイン画面
 ├── static/
-│   └── css/
-│       └── tailwind.css    # ビルド済み CSS（コミット対象）
+│   ├── css/
+│   │   └── tailwind.css    # ビルド済み CSS（コミット対象）
+│   └── img/
+│       └── favicon-*.png   # ファビコン（16 / 32 / 512px）
 ├── src/
 │   └── css/
 │       └── tailwind.css    # Tailwind のエントリ（ビルド元）
