@@ -2,8 +2,10 @@
 """
 Fail2ban Service - Interface with fail2ban-client
 """
+import glob
 import ipaddress
 import logging
+import os
 import re
 import subprocess
 from collections import defaultdict
@@ -15,6 +17,12 @@ logger = logging.getLogger(__name__)
 _FOUND_RE = re.compile(r'\] Found (\S+)(?: - (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}))?')
 # 例: 2026-09-05 08:30:09,456 fail2ban.actions [1234]: NOTICE [sshd] Ban 1.2.3.4
 _BAN_RE = re.compile(r'\] Ban (\S+)')
+
+_LOG_PATH = '/var/log/fail2ban.log'
+# grep では読めない形式。logrotate の delaycompress があれば直前の 1 世代は非圧縮で残る
+_COMPRESSED_SUFFIXES = ('.gz', '.bz2', '.xz', '.zst', '.zip')
+# findtime が極端に長い場合に過去ログ全体を読みにいかないための上限
+_MAX_ROTATED_FILES = 14
 
 
 class Fail2banService:
@@ -165,6 +173,50 @@ class Fail2banService:
         logger.warning('Could not read findtime for jail %s (got %r); assuming 600s', jail_name, output)
         return 600
 
+    @staticmethod
+    def _log_files_to_read(cutoff_ts):
+        """読むログファイルを返す（現行ファイル + 必要ならローテーション済みファイル）
+
+        logrotate 直後は findtime 内の Found 行がローテーション済みファイル側に残るため、
+        最終更新が cutoff より後のファイルも読む。ローテーションから findtime が経てば
+        すべて cutoff より古くなり、自然に現行ファイルだけに戻る。
+        """
+        files = [_LOG_PATH]
+        try:
+            candidates = set(glob.glob(_LOG_PATH + '.*')) | set(glob.glob(_LOG_PATH + '-*'))
+        except OSError as e:
+            logger.warning('Could not list rotated fail2ban logs: %s', e)
+            return files
+
+        rotated = []
+        skipped_compressed = []
+        for path in candidates:
+            try:
+                mtime = os.stat(path).st_mtime
+            except OSError:
+                continue                      # 読めない、または既に消えた
+            if mtime < cutoff_ts:
+                continue                      # 全行が findtime より古いので読む必要がない
+            if path.endswith(_COMPRESSED_SUFFIXES):
+                skipped_compressed.append(path)
+                continue
+            rotated.append((mtime, path))
+
+        if skipped_compressed:
+            logger.info(
+                'Skipping compressed fail2ban log(s): %s. Recent failures recorded there are not '
+                'counted; add "delaycompress" to the logrotate config to keep one generation readable.',
+                ', '.join(sorted(skipped_compressed)))
+
+        rotated.sort(reverse=True)            # 新しい順
+        if len(rotated) > _MAX_ROTATED_FILES:
+            logger.warning('findtime spans %d rotated fail2ban logs; reading only the newest %d',
+                           len(rotated), _MAX_ROTATED_FILES)
+            rotated = rotated[:_MAX_ROTATED_FILES]
+
+        files.extend(path for _, path in rotated)
+        return files
+
     def get_failed_ips(self, jail_name, banned_ips=None):
         """Get list of IPs currently being counted for failures
 
@@ -185,26 +237,32 @@ class Fail2banService:
         findtime = self._get_findtime(jail_name)
         cutoff = datetime.now() - timedelta(seconds=findtime)
         cutoff_str = cutoff.strftime('%Y-%m-%d %H:%M:%S')
+        log_files = self._log_files_to_read(cutoff.timestamp())
 
         try:
-            # Found 行と Ban 行だけを固定文字列で取り出す（Jail 名を正規表現として解釈させない）
+            # Found 行と Ban 行だけを固定文字列で取り出す（Jail 名を正規表現として解釈させない）。
+            # -h は複数ファイルを渡したときに行頭へファイル名が付くのを防ぐ
             log_result = subprocess.run(
-                ['sudo', 'grep', '-F', '-e', f'[{jail_name}] Found ', '-e', f'[{jail_name}] Ban ',
-                 '/var/log/fail2ban.log'],
+                ['sudo', 'grep', '-h', '-F',
+                 '-e', f'[{jail_name}] Found ', '-e', f'[{jail_name}] Ban ', *log_files],
                 capture_output=True,
                 text=True,
                 timeout=30
             )
         except Exception as e:
-            logger.warning('Could not read fail2ban.log for jail %s: %s', jail_name, e)
+            logger.warning('Could not read fail2ban logs for jail %s: %s', jail_name, e)
             return []
 
-        # grep は「該当行なし」で 1 を返すが、sudo 自体の失敗も 1 になる。stderr の有無で区別する
-        if log_result.returncode == 1 and not log_result.stderr.strip():
+        stderr = log_result.stderr.strip()
+        if log_result.returncode == 2 and log_result.stdout:
+            # 一部のファイルが読めなかった（ローテーションと重なった等）。読めた分で続行する
+            logger.warning('grep on fail2ban logs partially failed for jail %s: %s', jail_name, stderr)
+        elif log_result.returncode == 1 and not stderr:
+            # 該当行なし。grep は「なし」でも 1 を返すが、sudo 自体の失敗も 1 になるので stderr で区別する
             return []
-        if log_result.returncode != 0:
-            logger.warning('grep on fail2ban.log failed for jail %s (exit %s): %s',
-                           jail_name, log_result.returncode, log_result.stderr.strip())
+        elif log_result.returncode != 0:
+            logger.warning('grep on fail2ban logs failed for jail %s (exit %s): %s',
+                           jail_name, log_result.returncode, stderr)
             return []
 
         founds = []            # (event_time, ip)

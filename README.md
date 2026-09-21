@@ -470,7 +470,9 @@ grep NoNewPrivileges /etc/systemd/system/fail2ban-dashboard.service
 
 ### Failed IPs が「Currently failed」の数と合わない
 
-Failed IPs の一覧は `/var/log/fail2ban.log` の時刻を、ダッシュボードのプロセスの現在時刻と比較して作っています。ダッシュボードは **fail2ban と同じタイムゾーン**で動かしてください（`.env` や systemd ユニットで `TZ` を変えない）。また、ログローテーション直後は、直前のファイルにある失敗が一覧に含まれないことがあります。
+Failed IPs の一覧は `/var/log/fail2ban.log` の時刻を、ダッシュボードのプロセスの現在時刻と比較して作っています。ダッシュボードは **fail2ban と同じタイムゾーン**で動かしてください（`.env` や systemd ユニットで `TZ` を変えない）。
+
+findtime の範囲がログローテーションをまたぐ場合は、ローテーション済みのファイル（`fail2ban.log.1` など）も自動で読みます。ただし **圧縮済みのファイル（`.gz` など）は読めません**。findtime が長い Jail でローテーション直後に件数が少なく出る場合は、logrotate の設定に `delaycompress` を足して直前の 1 世代を非圧縮で残してください。スキップしたファイルは `journalctl -u fail2ban-dashboard` に記録されます。
 
 ### `sudo: command not found` / `fail2ban-client: not found`
 
