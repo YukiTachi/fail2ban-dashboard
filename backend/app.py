@@ -67,6 +67,11 @@ JAIL_COLORS = {
     'default': {'bg': 'bg-purple-500', 'border': 'border-purple-600', 'text': 'text-purple-600'}
 }
 
+# 一括 BAN で 1 リクエストに受け付ける IP 数の上限。
+# IP ごとに fail2ban-client を実行するため、多すぎると gunicorn / nginx のタイムアウト (60s) に掛かる。
+# 画面の Failed IPs 一覧は最大 50 件なので通常はこの上限に達しない。
+MAX_BATCH_BAN_IPS = 100
+
 def get_jail_color(jail_name):
     """Get color scheme for a jail"""
     for key in JAIL_COLORS:
@@ -193,6 +198,33 @@ def api_ban_ip(jail_name):
 
         result = fail2ban_service.ban_ip(jail_name, ip)
         return jsonify({'success': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/jail/<jail_name>/ban-batch', methods=['POST'])
+@login_required
+def api_ban_ips(jail_name):
+    """複数の IP をまとめて BAN する（Failed IPs 一覧でチェックした IP 用）
+
+    リクエスト: {"ips": ["1.2.3.4", ...]}
+    レスポンス: {"success": 全件成功か, "banned": [...], "failed": [...]}
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        ips = data.get('ips')
+
+        if not isinstance(ips, list) or not ips:
+            return jsonify({'success': False, 'error': 'ips (non-empty list) required'}), 400
+        if len(ips) > MAX_BATCH_BAN_IPS:
+            return jsonify({'success': False,
+                            'error': f'Too many IPs (max {MAX_BATCH_BAN_IPS} per request)'}), 400
+
+        result = fail2ban_service.ban_ips(jail_name, ips)
+        return jsonify({
+            'success': not result['failed'],
+            'banned': result['banned'],
+            'failed': result['failed']
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

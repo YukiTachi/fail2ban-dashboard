@@ -360,6 +360,34 @@ class Fail2banService:
         _, success = self._run_command(['set', jail_name, 'banip', ip])
         return success
 
+    def ban_ips(self, jail_name, ips):
+        """複数の IP をまとめて BAN し、IP ごとの結果を返す
+
+        fail2ban-client の banip は複数 IP を一度に受け取れるが、途中で失敗した場合に
+        どの IP まで BAN されたかが分からないため、1 件ずつ実行して結果を分けて返す。
+        不正な文字列や重複はここで弾く（画面から来る IP は検証済みだが、API を直接叩かれても安全にする）。
+
+        戻り値: {'banned': [BAN できた IP], 'failed': [BAN できなかった IP（不正なものを含む）]}
+        """
+        banned = []
+        failed = []
+        seen = set()
+        for raw in ips:
+            ip = self._valid_ip(raw) if isinstance(raw, str) else None
+            if ip is None:
+                logger.warning('Skipping invalid IP in batch ban for jail %s: %r', jail_name, raw)
+                failed.append(str(raw))
+                continue
+            if ip in seen:
+                continue
+            seen.add(ip)
+            if self.ban_ip(jail_name, ip):
+                banned.append(ip)
+            else:
+                logger.warning('fail2ban-client failed to ban %s in jail %s', ip, jail_name)
+                failed.append(ip)
+        return {'banned': banned, 'failed': failed}
+
     def unban_ip(self, jail_name, ip):
         """Unban an IP address from a jail"""
         _, success = self._run_command(['set', jail_name, 'unbanip', ip])

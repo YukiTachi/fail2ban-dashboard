@@ -94,7 +94,27 @@
                 </h3>
                 <p class="text-gray-400 mb-4">
                     IPs that are currently being counted for failures. You can manually ban these IPs.
+                    Check several rows to ban them all at once.
                 </p>
+
+                <!-- Batch ban toolbar (shown only while there are failed IPs) -->
+                <div id="failed-toolbar" class="hidden mb-4">
+                    <div class="flex flex-wrap items-center justify-between gap-3 bg-gray-900 rounded-lg px-4 py-3">
+                        <span class="text-gray-300 text-sm">
+                            <span id="selected-count" class="font-bold text-white stat-value">0</span> selected
+                        </span>
+                        <div class="flex items-center space-x-3">
+                            <button onclick="clearSelection()" id="clear-selection-btn"
+                                class="text-gray-400 hover:text-white text-sm transition disabled:opacity-40 disabled:cursor-not-allowed">
+                                Clear
+                            </button>
+                            <button onclick="banSelectedIPs()" id="ban-selected-btn" disabled
+                                class="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 py-2 rounded text-sm font-semibold transition">
+                                <i class="fas fa-ban mr-1" id="ban-selected-icon"></i>Ban Selected
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
                 <div id="failed-ips-container">
                     <div class="text-center py-8">
@@ -153,9 +173,13 @@
         const jailName = '{{ jail_name }}';
         let histogramChart = null;
         let jailData = null;
+        // IPs checked in the Failed IPs table (kept across auto-refresh while the IP is still listed)
+        const selectedIPs = new Set();
+        let batchBanInProgress = false;
 
         // Show toast notification
-        function showToast(message, isError = false) {
+        let toastTimer = null;
+        function showToast(message, isError = false, duration = 3000) {
             const toast = document.getElementById('toast');
             const icon = document.getElementById('toast-icon');
             const msg = document.getElementById('toast-message');
@@ -165,9 +189,10 @@
 
             toast.classList.remove('translate-y-20', 'opacity-0');
 
-            setTimeout(() => {
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
                 toast.classList.add('translate-y-20', 'opacity-0');
-            }, 3000);
+            }, duration);
         }
 
         // Tab switching
@@ -217,8 +242,12 @@
         // Render failed IPs with ban controls
         function renderFailedIPs(failedIPs) {
             const container = document.getElementById('failed-ips-container');
+            const toolbar = document.getElementById('failed-toolbar');
 
             if (!failedIPs || failedIPs.length === 0) {
+                selectedIPs.clear();
+                toolbar.classList.add('hidden');
+                updateSelectionUI();
                 container.innerHTML = `
                     <div class="text-center py-8 text-gray-500">
                         <i class="fas fa-check-circle text-4xl mb-4 text-green-500"></i>
@@ -233,6 +262,11 @@
                     <table class="w-full text-left">
                         <thead>
                             <tr class="border-b border-gray-700">
+                                <th class="py-3 px-4 w-10">
+                                    <input type="checkbox" id="select-all-failed" title="Select all"
+                                        class="w-4 h-4 accent-red-600 cursor-pointer align-middle"
+                                        onchange="toggleSelectAll(this.checked)">
+                                </th>
                                 <th class="py-3 px-4 text-gray-400 font-medium">IP Address</th>
                                 <th class="py-3 px-4 text-gray-400 font-medium text-center">Fail Count</th>
                                 <th class="py-3 px-4 text-gray-400 font-medium text-center">Action</th>
@@ -241,6 +275,12 @@
                         <tbody>
                             ${failedIPs.map(ip => `
                                 <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                                    <td class="py-3 px-4 w-10">
+                                        <input type="checkbox" data-ip="${ip.ip}" aria-label="Select ${ip.ip}"
+                                            class="failed-ip-checkbox w-4 h-4 accent-red-600 cursor-pointer align-middle"
+                                            ${selectedIPs.has(ip.ip) ? 'checked' : ''}
+                                            onchange="toggleIPSelection(this.dataset.ip, this.checked)">
+                                    </td>
                                     <td class="py-3 px-4">
                                         <code class="text-white bg-gray-900 px-2 py-1 rounded">${ip.ip}</code>
                                     </td>
@@ -259,6 +299,67 @@
                     </table>
                 </div>
             `;
+
+            toolbar.classList.remove('hidden');
+            updateSelectionUI();
+        }
+
+        // --- Batch ban: selection handling ---
+
+        // Called before each render so IPs that have disappeared (banned, expired) are dropped
+        function pruneSelection(failedIPs) {
+            const present = new Set((failedIPs || []).map(ip => ip.ip));
+            selectedIPs.forEach(ip => {
+                if (!present.has(ip)) selectedIPs.delete(ip);
+            });
+        }
+
+        function toggleIPSelection(ip, checked) {
+            if (checked) {
+                selectedIPs.add(ip);
+            } else {
+                selectedIPs.delete(ip);
+            }
+            updateSelectionUI();
+        }
+
+        function toggleSelectAll(checked) {
+            document.querySelectorAll('.failed-ip-checkbox').forEach(cb => {
+                cb.checked = checked;
+                if (checked) {
+                    selectedIPs.add(cb.dataset.ip);
+                } else {
+                    selectedIPs.delete(cb.dataset.ip);
+                }
+            });
+            updateSelectionUI();
+        }
+
+        function clearSelection() {
+            selectedIPs.clear();
+            document.querySelectorAll('.failed-ip-checkbox').forEach(cb => { cb.checked = false; });
+            updateSelectionUI();
+        }
+
+        // Sync the count, the buttons and the header checkbox with selectedIPs
+        function updateSelectionUI() {
+            const count = selectedIPs.size;
+            const countEl = document.getElementById('selected-count');
+            const banBtn = document.getElementById('ban-selected-btn');
+            const clearBtn = document.getElementById('clear-selection-btn');
+            const icon = document.getElementById('ban-selected-icon');
+            const selectAll = document.getElementById('select-all-failed');
+
+            countEl.textContent = count;
+            banBtn.disabled = count === 0 || batchBanInProgress;
+            clearBtn.disabled = count === 0 || batchBanInProgress;
+            icon.className = batchBanInProgress ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-ban mr-1';
+
+            if (selectAll) {
+                const total = document.querySelectorAll('.failed-ip-checkbox').length;
+                selectAll.checked = total > 0 && count === total;
+                selectAll.indeterminate = count > 0 && count < total;
+            }
         }
 
         // Get country flag emoji
@@ -436,6 +537,49 @@
             }
         }
 
+        // Ban every selected IP in one request
+        async function banSelectedIPs() {
+            const ips = Array.from(selectedIPs);
+            if (ips.length === 0 || batchBanInProgress) return;
+
+            const noun = ips.length === 1 ? 'IP address' : 'IP addresses';
+            if (!confirm(`Ban ${ips.length} ${noun} in ${jailName}?`)) return;
+
+            batchBanInProgress = true;
+            updateSelectionUI();
+
+            try {
+                const response = await fetch(`/api/jail/${jailName}/ban-batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ips })
+                });
+
+                const data = await response.json();
+
+                if (!Array.isArray(data.banned)) {
+                    throw new Error(data.error || 'Failed to ban IPs');
+                }
+
+                const failed = data.failed || [];
+                if (failed.length === 0) {
+                    showToast(`${data.banned.length} ${noun} banned`);
+                } else {
+                    showToast(`${data.banned.length} banned, ${failed.length} failed: ${failed.join(', ')}`, true, 6000);
+                }
+
+                // Keep only the failed ones selected so they can be retried after the refresh
+                selectedIPs.clear();
+                failed.forEach(ip => selectedIPs.add(ip));
+                await refreshData();
+            } catch (error) {
+                showToast('Error: ' + error.message, true);
+            } finally {
+                batchBanInProgress = false;
+                updateSelectionUI();
+            }
+        }
+
         // Unban an IP
         async function unbanIP(ip) {
             try {
@@ -473,6 +617,7 @@
                 document.getElementById('total-banned').textContent = (jailData.total_banned || 0).toLocaleString();
 
                 // Render tabs content
+                pruneSelection(jailData.failed_ips);
                 renderFailedIPs(jailData.failed_ips);
                 renderBannedIPs(jailData.banned_ips);
 
